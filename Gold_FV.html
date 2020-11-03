@@ -1,0 +1,320 @@
+<html>
+
+<head>
+
+</head>
+
+<body>
+
+    <p><u>Gold Linear Regression Model</u></p>
+
+    <p><b>Click table to toggle predictor variable</b></p>
+
+    <div id="table_div"></div>
+    <p>
+        <label for="Reg_Period"><b>Regression time period:</b></label>
+        <select name="Reg_Period" id="Reg_Period_Var" onchange="chartEXE(); return false">
+            <option value="90">3 months</option>
+            <option value="180">6 months</option>
+            <option value="360">1 year</option>
+            <option value="1080">3 years</option>
+            <option value="1800">5 years</option>
+        </select>
+    </p>
+    <div id="scatter_chart_div" style="width: 100vw; height: 45vw;"></div>
+
+    <p><u>Assumptions</u></p>
+    <form id="form1" onchange="chartFVEXE(); return false">
+        <div id="model_ass1" class="range-wrap"></div>
+        <div id="model_ass2" class="range-wrap"></div>
+        <div id="model_ass3"></div>
+    </form>
+
+    <p>
+    <div id="forecast"></div>
+    </p>
+
+
+    <!--Load the AJAX API-->
+    <script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
+
+    <script type="text/javascript">
+
+
+        ///////////////////////   Left off here - need to get slider script working, then fix hierarchy for how slider assumption trigger works - should go:
+        // Table selection -> slider redraw with new predictor variable -> fair value chart and forecast text
+        // Also an issue with running the slider input script when the slider doesn't exist yet - maybe that should be within a new slider function at bottom?
+
+        // Load the Visualization API and the controls package.
+        google.charts.load('47', { 'packages': ['corechart', 'controls', 'table'] });
+        // Set a callback to run when the Google Visualization API is loaded.
+        google.charts.setOnLoadCallback(globalChart);
+
+        //Static Table Options
+        var table_options = {
+            //sort: 'disable',
+            sortColumn: 1,
+            sortAscending: false
+        }
+
+        //Declare requited global fair values for fair value linear regression
+        //var regression;
+        //var gold_last_px;
+
+        //Function thet makes slider work
+        function slider_function() {
+
+            const allRanges = document.querySelectorAll(".range-wrap");
+            allRanges.forEach(wrap => {
+                const range = wrap.querySelector(".range");
+                const bubble = wrap.querySelector(".bubble");
+
+                range.addEventListener("input", () => {
+                    setBubble(range, bubble);
+                });
+                setBubble(range, bubble);
+            });
+
+            function setBubble(range, bubble) {
+                const val = range.value;
+                const min = range.min ? range.min : 0;
+                const max = range.max ? range.max : 100;
+                const newVal = Number(((val - min) * 100) / (max - min));
+                bubble.innerHTML = (val);
+
+                // Sorta magic numbers based on size of the native UI thumb
+                bubble.style.left = `calc(${newVal}% + (${8 - newVal * 0.15}px))`;
+            }
+
+        }
+
+        //This function grabs the raw data from the google sheets
+        function globalChart() {
+
+            // Create table and chart
+            table = new google.visualization.Table(document.getElementById('table_div'));
+            scatter_chart = new google.visualization.ScatterChart(document.getElementById('scatter_chart_div'));
+            //If I want to add a line chart for the fair value
+            //chart = new google.visualization.LineChart(document.getElementById('chart_div'));
+
+            //Grab sheets data (gold regs)
+            var queryString = encodeURIComponent("SELECT*");
+
+            var query = new google.visualization.Query(
+                'https://docs.google.com/spreadsheets/d/1eABM4-XgHerB98VjVo1kVvcAl6ocGPCstMQs4bh5WEA/gviz/tq?sheet=Gold_Regs&headers=1&tq=' + queryString);
+            query.send(handleSampleDataQueryResponse);
+
+            //Grab sheets data (timeseries)
+            var queryString1 = encodeURIComponent("SELECT A,B,G,J,L,O,P,Q");
+
+            var query1 = new google.visualization.Query(
+                'https://docs.google.com/spreadsheets/d/1eABM4-XgHerB98VjVo1kVvcAl6ocGPCstMQs4bh5WEA/gviz/tq?sheet=Data&headers=1&tq=' + queryString1);
+            query1.send(handleSampleDataQueryResponse1);
+
+            function handleSampleDataQueryResponse(response) {
+
+                if (response.isError()) {
+                    alert('Error in query: ' + response.getMessage() + ' ' + response.getDetailedMessage());
+                    return;
+                }
+
+                //convert data to array
+                gold_regs_raw = response.getDataTable();
+            }
+
+            function handleSampleDataQueryResponse1(response) {
+
+                if (response.isError()) {
+                    alert('Error in query: ' + response.getMessage() + ' ' + response.getDetailedMessage());
+                    return;
+                }
+
+                //convert data to array
+                timeseries_raw = response.getDataTable();
+                //Update global var for last gold px
+                gold_last_px = timeseries_raw.getValue(timeseries_raw.getNumberOfRows() - 1, 3)
+                //Draw the intial table and charts - globalChart() will not be called again when user inputs change
+                chartEXE();
+                chartFVEXE();
+            }
+
+        }
+
+        //This function loads the google charts package and triggers the drawChart() function
+        function chartEXE() {
+            google.charts.setOnLoadCallback(drawChart);
+        }
+        function chartFVEXE() {
+            google.charts.setOnLoadCallback(drawFV);
+        }
+
+        //This function draws the google charts elements
+        function drawChart() {
+
+            //User period input
+            var Reg_Period = parseInt(document.getElementById('Reg_Period_Var').value)
+            //Filter Data by period input
+            var table_view = new google.visualization.DataView(gold_regs_raw);
+            table_view.setRows(
+                table_view.getFilteredRows([{ column: 3, value: Reg_Period }])
+            )
+
+            //take data from row and create the google table
+            var table_data = new google.visualization.DataTable();
+            table_data.addColumn('string', 'Predictor');
+            table_data.addColumn('number', 'RSQ (fit)');
+            table_data.addColumn('string', 'Correlation');
+            table_data.addRows([
+                ['Real 10yr', table_view.getValue(0, 7), table_view.getValue(0, 4)],
+                ['Equity Risk Premium', table_view.getValue(0, 11), table_view.getValue(0, 8)],
+                ['S&P 500', table_view.getValue(0, 15), table_view.getValue(0, 12)],
+                ['Oil (WTI)', table_view.getValue(0, 19), table_view.getValue(0, 16)]
+            ])
+
+            //Draw table and sort by RSQ descending
+            table.draw(table_data, table_options)
+            table.setSelection([{ row: 0, column: null }])
+            predictor = table_data.getValue(table.getSelection()[0]['row'], 0)
+
+            //Add event listener for user selection
+            google.visualization.events.addListener(table, 'select', selectHandler);
+            function selectHandler() {
+                predictor = table_data.getValue(table.getSelection()[0]['row'], 0)
+                scatter_data_selection();
+            }
+
+            //create view of timeseries data
+            var scatter_view = new google.visualization.DataView(timeseries_raw);
+            var scatter_options;
+            //Filter scatter view by user selected period
+            var d = new Date();
+            d.setDate(d.getDate() - Reg_Period);
+            d = new Date(d.getFullYear(), d.getMonth(), d.getDate())
+            scatter_view.setRows(
+                scatter_view.getFilteredRows([{ column: 0, minValue: d }])
+            )
+
+            //Linear models available for selected period
+            var regressions = [
+                ['Real 10yr', table_view.getValue(0, 5), table_view.getValue(0, 6)],
+                ['Equity Risk Premium', table_view.getValue(0, 9), table_view.getValue(0, 10)],
+                ['S&P 500', table_view.getValue(0, 13), table_view.getValue(0, 14)],
+                ['Oil (WTI)', table_view.getValue(0, 17), table_view.getValue(0, 18)]
+            ]
+
+            //Draw the initial scatter
+            scatter_data_selection();
+
+            //Function to run everytime predictor variable is changed - triggered by table click or period change
+            function scatter_data_selection() {
+                //Take user selection (from clicking table, first row as default) to create scatter of data during time period
+                for (i = 0; i < timeseries_raw.getNumberOfColumns(); i++) {
+                    //Find the column labal that matches selection, then create the scatter data table
+                    if (timeseries_raw.getColumnLabel(i) == predictor) {
+                        scatter_view.setColumns([i, 3])
+                        predictor_range = timeseries_raw.getColumnRange(i)
+                    }
+                }
+                scatter_options = {
+                    title: 'Scatter',
+                    hAxis: { title: predictor },
+                    vAxis: { title: 'Gold ($/ounce)' },
+                    legend: 'none',
+                    trendlines: {
+                        0: {
+                            type: 'linear',
+                            color: 'green',
+                            lineWidth: 3,
+                            opacity: 0.3,
+                            showR2: false,
+                            visibleInLegend: false,
+                            pointsVisible: false
+                        }
+                    }
+                }
+                //Now scatter_view has the 2 relevant columns and is filtered by user date - create scatter plot
+                scatter_chart.draw(scatter_view, scatter_options);
+
+                if (predictor == 'Real 10yr') {
+                    var nominal_last_val = timeseries_raw.getValue(timeseries_raw.getNumberOfRows() - 1, 6)
+                    var inflation_last_val = timeseries_raw.getValue(timeseries_raw.getNumberOfRows() - 1, 7)
+                    var nominal_range = timeseries_raw.getColumnRange(6)
+                    var inflation_range = timeseries_raw.getColumnRange(7)
+                    var nominal_delta = nominal_range['max'] - nominal_range['min'];
+                    var inflation_delta = inflation_range['max'] - inflation_range['min'];
+                    var nominal_lower_bound = (nominal_range['min'] - nominal_delta / 8).toFixed(3)
+                    var inflation_lower_bound = (inflation_range['min'] - inflation_delta / 8).toFixed(3)
+                    var nominal_upper_bound = (nominal_range['max'] + nominal_delta / 8).toFixed(3)
+                    var inflation_upper_bound = (inflation_range['max'] + inflation_delta / 8).toFixed(3)
+                    var nominal_step = ((nominal_upper_bound - nominal_lower_bound) / 32).toFixed(3)
+                    var inflation_step = ((inflation_upper_bound - inflation_lower_bound) / 32).toFixed(3)
+                    document.getElementById("model_ass1").innerHTML = '<label for="Predictor">US10yr treasury yield assumption: </label><input type="range" class="range" min="' + nominal_lower_bound + '" max="' + nominal_upper_bound + '" step="' + nominal_step + '" value="' + nominal_last_val + '" id="nominal_ass"><output class="bubble"></output><br>';
+                    document.getElementById("model_ass2").innerHTML = '<label for="Predictor">10yr inflation expectations assumption: </label><input type="range" class="range" min="' + inflation_lower_bound + '" max="' + inflation_upper_bound + '" step="' + inflation_step + '" value="' + inflation_last_val + '" id="inflation_ass"><output class="bubble"></output><br>';
+
+                } else {
+                    //Redraw predictor variable input upon change
+                    var last_val = scatter_view.getValue(scatter_view.getNumberOfRows() - 1, 0)
+                    var predictor_range;
+                    var predictor_delta = predictor_range['max'] - predictor_range['min'];
+                    var lower_bound = (predictor_range['min'] - predictor_delta / 8).toFixed(3)
+                    var upper_bound = (predictor_range['max'] + predictor_delta / 8).toFixed(3)
+                    var step = ((upper_bound - lower_bound) / 32).toFixed(3)
+                    document.getElementById("model_ass1").innerHTML = '<label for="Predictor">' + predictor + ' assumption: </label><input type="range" class="range" min="' + lower_bound + '" max="' + upper_bound + '" step="' + step + '" value="' + last_val + '" id="Predictor_Var"><output class="bubble"></output><br>';
+                    document.getElementById("model_ass2").innerHTML = '<p hidden><input class="range" value="0" ><output class="bubble"></output></p>';
+                    document.getElementById("model_ass3").innerHTML = '';
+                }
+
+                slider_function();
+
+                //Set linear model slope and intercept based on predictor/period selected
+                //loop through to determine the correct regression to use
+
+                for (i = 0; i < regressions.length; i++) {
+                    //Find the column labal that matches selection, then create the scatter data table
+                    if (regressions[i][0] == predictor) {
+                        regression_slope = regressions[i][1]
+                        regression_int = regressions[i][2]
+                    }
+                }
+
+                //Rewrite fairvalue line
+                drawFV();
+
+            }
+
+        }
+
+        var predictor;
+
+        //This function outputs fair value target
+        function drawFV() {
+
+            //User slide input
+            if (predictor == 'Real 10yr') {
+                var predictor_ass = document.getElementById('nominal_ass').value - document.getElementById('inflation_ass').value;
+                document.getElementById("model_ass3").innerHTML = '<b>10yr real rates assumption: ' + predictor_ass.toFixed(4) + '</b>'
+            } else {
+                var predictor_ass = document.getElementById('Predictor_Var').value
+            }
+
+            //Calculate spx fv based on user input, and add to data table
+            var gold_fv = regression_int + regression_slope * predictor_ass
+
+            //Add numeric model output
+            var forecast = ((gold_fv / gold_last_px - 1) * 100).toFixed(1)
+            var forecast_str;
+            //Set Value Font color based on positive/negative
+            if (forecast < 0) {
+                forecast_str = '<span style="color:red">' + forecast + "%<span/>"
+            } else {
+                forecast_str = '<span style="color:green">' + forecast + "%<span/>"
+            }
+            document.getElementById("forecast").innerHTML = "<b>Gold Fair Value: <u>" + gold_fv.toFixed(0) + "</u>. Medium-term forecast: <u>" + forecast_str + "</u></b>";
+
+        }
+
+    </script>
+
+</body>
+
+</html>

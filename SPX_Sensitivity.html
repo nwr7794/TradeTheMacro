@@ -1,0 +1,156 @@
+<html>
+
+<head>
+  <!--Load the AJAX API-->
+  <script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
+  <!-- <script type="text/javascript" src="https://gmousse.github.io/dataframe-js/dist/dataframe.min.js"></script> -->
+
+</head>
+
+<body>
+
+  <p>Assumptions</p>
+  <form id="form1" onchange="chartEXE(); return false">
+    <div class="range-wrap">
+      <label for="Earnings">Earnings: </label><input type="range" class="range" min="-25" max="25" step="2.5" value="-7.5"
+        id="Earnings_Var"><output class="bubble"></output><br>
+    </div>
+    <div class="range-wrap">
+      <label for="ERP">Equity Risk Premium: </label><input type="range" class="range" min="0" max="8" step=".25"
+        value="3" id="ERP_Var"><output class="bubble"></output><br>
+    </div>
+  </form>
+
+  <div id="chart_div" style="width: 100vw; height: 45vw;"></div>
+
+
+  <script>
+    //Slider input script
+    const allRanges = document.querySelectorAll(".range-wrap");
+    allRanges.forEach(wrap => {
+      const range = wrap.querySelector(".range");
+      const bubble = wrap.querySelector(".bubble");
+
+      range.addEventListener("input", () => {
+        setBubble(range, bubble);
+      });
+      setBubble(range, bubble);
+    });
+
+    function setBubble(range, bubble) {
+      const val = range.value;
+      const min = range.min ? range.min : 0;
+      const max = range.max ? range.max : 100;
+      const newVal = Number(((val - min) * 100) / (max - min));
+      bubble.innerHTML = (val + "%");
+
+      // Sorta magic numbers based on size of the native UI thumb
+      bubble.style.left = `calc(${newVal}% + (${8 - newVal * 0.15}px))`;
+    }
+
+    /////////////////////////////////////////////////////////////////////////////////////////
+
+
+    //Load Dataframes-js
+    //var DataFrame = dfjs.DataFrame;
+    // Load the Visualization API and the controls package.
+    google.charts.load('47', { 'packages': ['corechart', 'controls'] });
+    // Set a callback to run when the Google Visualization API is loaded.
+    google.charts.setOnLoadCallback(globalChart);
+
+    //Static assumptions
+    var earnings_2019 = 139.47
+    var ust_arr = [0, 0.001, 0.002, 0.003, 0.004, 0.005, 0.006, 0.007, 0.008, 0.009, 0.01, 0.011, 0.012, 0.013, 0.014, 0.015, 0.016, 0.017, 0.018, 0.019, 0.02, 0.021, 0.022, 0.023, 0.024, 0.025, 0.026, 0.027, 0.028, 0.029, 0.03, 0.031, 0.032, 0.033, 0.034, 0.035, 0.036, 0.037, 0.038, 0.039, 0.04, 0.041, 0.042, 0.043, 0.044, 0.045, 0.046, 0.047, 0.048, 0.049, 0.05, 0.051, 0.052, 0.053, 0.054, 0.055, 0.056, 0.057, 0.058, 0.059, 0.06]
+
+    //Declare global variables required from globalChart
+    var prices_last = [];
+    var place;
+
+    //Chart Options
+    var options = {
+      title: 'S&P 500/Rates Sensitivity',
+      hAxis: { title: 'US 10yr Treasury Yield', format: 'percent' },
+      vAxis: { title: 'S&P 500' },
+      legend: 'bottom'
+    }
+
+    function globalChart() {
+
+      // Create chart
+      chart = new google.visualization.ScatterChart(document.getElementById('chart_div'));
+
+      //Grab sheets data
+      //Get last 10yr treasury and spx price
+      var queryString = encodeURIComponent('SELECT M,N');
+      var query = new google.visualization.Query(
+        'https://docs.google.com/spreadsheets/d/1eABM4-XgHerB98VjVo1kVvcAl6ocGPCstMQs4bh5WEA/gviz/tq?sheet=Data&headers=1&tq=' + queryString);
+      query.send(handleSampleDataQueryResponse);
+
+      function handleSampleDataQueryResponse(response) {
+
+        if (response.isError()) {
+          alert('Error in query: ' + response.getMessage() + ' ' + response.getDetailedMessage());
+          return;
+        }
+
+        //convert data to array and grab the last treasury yield and spx price
+        var data_live = response.getDataTable();
+        data_live = data_live.toJSON()
+        prices_last = JSON.parse(data_live)
+        //insert last spx price at closest ust yield index
+        var ust_last = prices_last.rows[0]['c'][1]['v'];
+        var closest = ust_arr.reduce(function (prev, curr) {
+          return (Math.abs(curr - ust_last) < Math.abs(prev - ust_last) ? curr : prev);
+        });
+        place = ust_arr.indexOf(closest)
+
+        //Draw the intial chart - this global function will not be called again when user inputs change
+        chartEXE();
+      }
+
+    }
+
+    function chartEXE() {
+      //need to run this on any function that uses the google charts package, I guess
+      google.charts.setOnLoadCallback(drawChart);
+    }
+
+    function drawChart() {
+
+      //Create the data table
+      var data = new google.visualization.DataTable();
+      data.addColumn('number', 'UST');
+      data.addColumn('number', 'Fair Value');
+      data.addColumn('number', 'Current Price');
+
+      //User slide input
+      var earnings_2021_ass = document.getElementById('Earnings_Var').value / 100
+      var erp_ass = document.getElementById('ERP_Var').value / 100
+      //Calculate spx fv for each treaury yield
+
+      var spx_fv = [];
+      for (j = 0; j < ust_arr.length; j++) {
+        spx_fv.push(
+          1 / (ust_arr[j] + erp_ass) * (earnings_2019 * (1 + earnings_2021_ass))
+        )
+      }
+
+      //create array of arrays
+      scatter_data = ust_arr.map(function (x, i) {
+        return [x, spx_fv[i], null]
+      });
+
+      scatter_data[place][2] = prices_last.rows[0]['c'][0]['v']
+      //Add Data
+      data.addRows(scatter_data);
+      // draw chart
+      chart.draw(data, options);
+
+    }
+
+  </script>
+
+
+</body>
+
+</html>

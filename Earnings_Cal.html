@@ -1,0 +1,68 @@
+<html>
+
+<head>
+
+</head>
+
+<body>
+
+    <div id="table_div"></div>
+
+    <!--Load the AJAX API-->
+    <script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
+
+    <script type="text/javascript">
+
+        // Load the Visualization API and the controls package.
+        google.charts.load('47', { 'packages': ['corechart', 'controls', 'table'] });
+        // Set a callback to run when the Google Visualization API is loaded.
+        google.charts.setOnLoadCallback(globalChart);
+
+        //Static Table Options
+        var table_options = {
+            sortColumn: 2,
+            sortAscending: true,
+            allowHtml: true
+        }
+
+        //This function grabs the raw data from the google sheets
+        function globalChart() {
+
+            // Create table and chart
+            table = new google.visualization.Table(document.getElementById('table_div'));
+
+            //Grab sheets data
+            var queryString = encodeURIComponent("SELECT*");
+
+            var query = new google.visualization.Query(
+                'https://docs.google.com/spreadsheets/d/1eABM4-XgHerB98VjVo1kVvcAl6ocGPCstMQs4bh5WEA/gviz/tq?sheet=Yahoo_Earnings_Agg&headers=1&tq=' + queryString);
+            query.send(handleSampleDataQueryResponse);
+
+            function handleSampleDataQueryResponse(response) {
+
+                if (response.isError()) {
+                    alert('Error in query: ' + response.getMessage() + ' ' + response.getDetailedMessage());
+                    return;
+                }
+
+                //convert data to array
+                table_data = response.getDataTable();
+                //Draw table and sort by 7 day performance
+                var formatter = new google.visualization.NumberFormat(
+                    { suffix: '%', negativeColor: "red", negativeParens: true });
+
+                for (i = 2; i < table_data.getNumberOfColumns(); i++) {
+                    formatter.format(table_data, i);
+                }
+                table.draw(table_data, table_options)
+            }
+
+        }
+
+
+
+    </script>
+
+</body>
+
+</html>

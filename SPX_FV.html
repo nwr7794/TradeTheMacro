@@ -1,0 +1,176 @@
+<html>
+
+<head>
+
+</head>
+
+<body>
+
+  <p>Model Assumptions</p>
+  <form id="form1" onchange="chartEXE(); return false">
+    <div class="range-wrap">
+      <label for="Earnings">Corporate Earnings (2021 vs. 2019): </label><input type="range" class="range" min="-25" max="25"
+        step="2.5" value="-7.5" id="Earnings_Var"><output class="bubble"></output><br>
+    </div>
+    <div class="range-wrap">
+      <label for="UST">10yr UST yield: </label><input type="range" class="range" min="0" max="10" step=".25" value=".75"
+        id="UST_Var"><output class="bubble"></output><br>
+    </div>
+    <div class="range-wrap">
+      <label for="ERP">Equity Risk Premium: </label><input type="range" class="range" min="0" max="8" step=".25"
+        value="3" id="ERP_Var"><output class="bubble"></output><br>
+    </div>
+  </form>
+
+  <p>
+  <div id="forecast"></div>
+  </p>
+
+  <div id="chart_div" style="width: 100vw; height: 45vw;"></div>
+
+  <label for="Start_Year">Start year:</label>
+  <select name="Start_Year" id="Start_Year_Var" onchange="chartEXE(); return false">
+    <option value="2016">2016</option>
+    <option value="2017">2017</option>
+    <option value="2018">2018</option>
+    <option value="2019">2019</option>
+    <option value="2020">2020</option>
+  </select>
+
+  <!--Load the AJAX API-->
+  <script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
+
+  <script type="text/javascript">
+    //Slider input script
+    const allRanges = document.querySelectorAll(".range-wrap");
+    allRanges.forEach(wrap => {
+      const range = wrap.querySelector(".range");
+      const bubble = wrap.querySelector(".bubble");
+
+      range.addEventListener("input", () => {
+        setBubble(range, bubble);
+      });
+      setBubble(range, bubble);
+    });
+
+    function setBubble(range, bubble) {
+      const val = range.value;
+      const min = range.min ? range.min : 0;
+      const max = range.max ? range.max : 100;
+      const newVal = Number(((val - min) * 100) / (max - min));
+      bubble.innerHTML = (val + "%");
+
+      // Sorta magic numbers based on size of the native UI thumb
+      bubble.style.left = `calc(${newVal}% + (${8 - newVal * 0.15}px))`;
+    }
+
+    /////////////////////////////////////////////////////////////////////////////////////////
+
+    // Load the Visualization API and the controls package.
+    google.charts.load('47', { 'packages': ['corechart', 'controls'] });
+    // Set a callback to run when the Google Visualization API is loaded.
+    google.charts.setOnLoadCallback(globalChart);
+
+    //Static assumptions
+    var earnings_2019 = 139.47
+
+    //Declare global variables required from globalChart
+    var prices_last;
+    //var data_tmp;
+
+    //Chart Options
+    var options = {
+      title: 'S&P 500 Fair Value Model',
+      legend: 'bottom',
+      hAxis: { title: 'Date' },
+      vAxis: { title: 'S&P 500' },
+      interpolateNulls: 'true',
+      series: {
+        1: { lineDashStyle: [4, 4], lineWidth: 4 }
+      }
+    }
+
+    function globalChart() {
+
+      // Create chart
+      chart = new google.visualization.LineChart(document.getElementById('chart_div'));
+
+      //Grab sheets data
+      var queryString = encodeURIComponent("SELECT A,B where A >= date '2016-01-01' and B is not null ");
+
+      var query = new google.visualization.Query(
+        'https://docs.google.com/spreadsheets/d/1eABM4-XgHerB98VjVo1kVvcAl6ocGPCstMQs4bh5WEA/gviz/tq?sheet=Data&headers=1&tq=' + queryString);
+      query.send(handleSampleDataQueryResponse);
+
+      function handleSampleDataQueryResponse(response) {
+
+        if (response.isError()) {
+          alert('Error in query: ' + response.getMessage() + ' ' + response.getDetailedMessage());
+          return;
+        }
+
+        //convert data to array
+        prices_last = response.getDataTable();
+
+        //Draw the intial chart - globalChart() will not be called again when user inputs change
+        chartEXE();
+      }
+
+    }
+
+    function chartEXE() {
+      //need to run this on any function that uses the google charts package, I guess
+      google.charts.setOnLoadCallback(drawChart);
+    }
+
+    function drawChart() {
+
+      //Add column to data table
+      var data = prices_last.clone()
+      data.addColumn('number', 'Fair Value');
+
+      //User slide input
+      var earnings_2021_ass = document.getElementById('Earnings_Var').value / 100
+      var erp_ass = document.getElementById('ERP_Var').value / 100
+      var UST_ass = document.getElementById('UST_Var').value / 100
+      var Start_Year = document.getElementById('Start_Year_Var').value
+
+      //Calculate spx fv based on user input, and add to data table
+      var spx_fv = 1 / (UST_ass + erp_ass) * (earnings_2019 * (1 + earnings_2021_ass))
+
+
+      //Insert fair value model output on to latest spx price date, and fv date = to realized (so can make dashed line to fair value)
+      //Need to find first NULL date value
+      var data_tmp = data.toJSON()
+      data_tmp = JSON.parse(data_tmp)
+      var lastIndex = data_tmp.rows.length - 1;
+      var prev = data.getValue(lastIndex, 1)
+      data.setCell(lastIndex, 2, prev);
+
+      var d = new Date();
+      d.setDate(d.getDate() + 180);
+      d = new Date(d.getFullYear(), d.getMonth(), d.getDate())
+      data.insertRows(lastIndex + 1, [[d, null, spx_fv]])
+      //Filter for start year based on user input
+      var final = new google.visualization.DataView(data);
+      final.setRows(final.getFilteredRows([{ column: 0, minValue: new Date(Start_Year, 0, 1) }]));
+      //Add numeric model output
+      var forecast = ((spx_fv / prev - 1) * 100).toFixed(1)
+      var forecast_str;
+      //Set Value Font color based on positive/negative
+      if (forecast < 0) {
+        forecast_str = '<span style="color:red">' + forecast + "%<span/>"
+      } else {
+        forecast_str = '<span style="color:green">' + forecast + "%<span/>"
+      }
+      document.getElementById("forecast").innerHTML = "<b>S&P 500 Fair Value: <u>" + spx_fv.toFixed(0) + "</u>. Medium-term forecast: <u>" + forecast_str + "</u></b>";
+      // draw chart
+      chart.draw(final, options);
+
+    }
+
+  </script>
+
+</body>
+
+</html>
